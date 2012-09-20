@@ -164,7 +164,8 @@ class TestCql(unittest.TestCase):
     keyspace = None
 
     def setUp(self):
-        dbconn = cql.connect(TEST_HOST, TEST_PORT)
+        # all tests in this module are against cql 2. change would be welcomed.
+        dbconn = cql.connect(TEST_HOST, TEST_PORT, cql_version='2.0.0')
         self.cursor = dbconn.cursor()
         self.randstr = randstring()
         self.keyspace = create_schema(self.cursor, self.randstr)
