@@ -29,8 +29,12 @@ class Connection(object):
         * user .........: username used in authentication (optional).
         * password .....: password used in authentication (optional).
         * cql_version...: CQL version to use (optional).
-        * compression...: the sort of compression to use by default;
-        *                 overrideable per Cursor object. (optional).
+        * compression...: whether to use compression. For Thrift connections,
+        *                 this can be None or the name of some supported
+        *                 compression type (like "GZIP"). For native
+        *                 connections, this is treated as a boolean, and if
+        *                 true, the connection will try to find a type of
+        *                 compression supported by both sides.
         """
         self.host = host
         self.port = port
@@ -85,12 +89,37 @@ class Connection(object):
         return curs
 
 # TODO: Pull connections out of a pool instead.
-def connect(host, port=9160, keyspace=None, user=None, password=None,
-            cql_version=None, native=False):
+def connect(host, port=None, keyspace=None, user=None, password=None,
+            cql_version=None, native=False, compression=None):
+    """
+    Create a connection to a Cassandra node.
+
+    @param host Hostname of Cassandra node.
+    @param port Port number to connect to (default 9160 for thrift, 8000
+                for native)
+    @param keyspace If set, authenticate to this keyspace on connection.
+    @param user If set, use this username in authentication.
+    @param password If set, use this password in authentication.
+    @param cql_version If set, try to use the given CQL version. If unset,
+                uses the default for the connection.
+    @param compression Whether to use compression. For Thrift connections,
+                this can be None or the name of some supported compression
+                type (like "GZIP"). For native connections, this is treated
+                as a boolean, and if true, the connection will try to find
+                a type of compression supported by both sides.
+
+    @returns a Connection instance of the appropriate subclass.
+    """
+
     if native:
         from native import NativeConnection
         connclass = NativeConnection
+        if port is None:
+            port = 8000
     else:
         from thrifteries import ThriftConnection
         connclass = ThriftConnection
-    return connclass(host, port, keyspace, user, password, cql_version)
+        if port is None:
+            port = 9160
+    return connclass(host, port, keyspace, user, password,
+                     cql_version=cql_version, compression=compression)

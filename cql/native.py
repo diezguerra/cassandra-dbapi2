@@ -85,12 +85,15 @@ class _MessageType(object):
                                  % (self.__class__.__name__, pname))
             setattr(self, pname, pval)
 
-    def send(self, f, streamid, compression=False):
+    def send(self, f, streamid, compression=None):
         body = StringIO()
         self.send_body(body)
         body = body.getvalue()
         version = PROTOCOL_VERSION | HEADER_DIRECTION_FROM_CLIENT
-        flags = 0 # no compression supported yet
+        flags = 0
+        if compression is not None and len(body) > 0:
+            body = compression(body)
+            flags |= 0x1
         msglen = int32_pack(len(body))
         header = '%c%c%c%c%s' % (version, flags, streamid, self.opcode, msglen)
         f.write(header)
@@ -102,7 +105,7 @@ class _MessageType(object):
         return '<%s(%s)>' % (self.__class__.__name__, ', '.join(paramstrs))
     __repr__ = __str__
 
-def read_frame(f):
+def read_frame(f, decompressor=None):
     header = f.read(8)
     version, flags, stream, opcode = map(ord, header[:4])
     body_len = int32_unpack(header[4:])
@@ -111,9 +114,14 @@ def read_frame(f):
     assert version & HEADER_DIRECTION_MASK == HEADER_DIRECTION_TO_CLIENT, \
             "Unexpected request from server with opcode %04x, stream id %r" % (opcode, stream)
     assert body_len >= 0, "Invalid CQL protocol body_len %r" % body_len
+    body = f.read(body_len)
+    if flags & 0x1:
+        if decompressor is None:
+            raise ProtocolException("No decompressor available for compressed frame!")
+        body = decompressor(body)
+        flags ^= 0x1
     if flags:
         warn("Unknown protocol flags set: %02x. May cause problems." % flags)
-    body = f.read(body_len)
     msgclass = _message_types_by_opcode[opcode]
     msg = msgclass.recv_body(StringIO(body))
     msg.stream_id = stream
@@ -670,10 +678,10 @@ class NativeCursor(Cursor):
         self.rowcount = len(self.result)
 
     def get_compression(self):
-        return None
+        return self._connection.compression
 
     def set_compression(self, val):
-        if val is not None:
+        if val != self.get_compression():
             raise NotImplementedError("Setting per-cursor compression is not "
                                       "supported in NativeCursor.")
 
@@ -702,6 +710,20 @@ class debugsock:
     def close(self):
         pass
 
+locally_supported_compressions = {}
+
+try:
+    import snappy
+except ImportError:
+    pass
+else:
+    # work around apparently buggy snappy decompress
+    def decompress(byts):
+        if byts == '\x00':
+            return ''
+        return snappy.decompress(byts)
+    locally_supported_compressions['snappy'] = (snappy.compress, decompress)
+
 class NativeConnection(Connection):
     cursorclass = NativeCursor
 
@@ -710,6 +732,7 @@ class NativeConnection(Connection):
         self.responses = {}
         self.waiting = {}
         self.conn_ready = False
+        self.compressor = self.decompressor = None
         Connection.__init__(self, *args, **kwargs)
 
     def establish_connection(self):
@@ -721,7 +744,7 @@ class NativeConnection(Connection):
         self.open_socket = True
         supported = self.wait_for_request(OptionsMessage())
         self.supported_cql_versions = supported.cqlversions
-        self.supported_compressions = supported.options['COMPRESSION']
+        self.remote_supported_compressions = supported.options['COMPRESSION']
 
         if self.cql_version:
             if self.cql_version not in self.supported_cql_versions:
@@ -733,20 +756,30 @@ class NativeConnection(Connection):
             self.cql_version = self.supported_cql_versions[0]
 
         opts = {}
+        compresstype = None
         if self.compression:
-            if self.compression not in self.supported_compressions:
-                raise ProgrammingError("Compression type %r is not supported by"
-                                       " remote. Supported compression types: %r"
-                                       % (self.compression, self.supported_compressions))
-            # XXX: Remove this once some compressions are supported
-            raise NotImplementedError("CQL driver does not yet support compression")
-            opts['COMPRESSION'] = self.compression
+            overlap = set(locally_supported_compressions) \
+                    & set(self.remote_supported_compressions)
+            if len(overlap) == 0:
+                warn("No available compression types supported on both ends."
+                     " locally supported: %r. remotely supported: %r"
+                     % (locally_supported_compressions,
+                        self.remote_supported_compressions))
+            else:
+                compresstype = iter(overlap).next() # choose any
+                opts['COMPRESSION'] = compresstype
+                compr, decompr = locally_supported_compressions[compresstype]
+                # set the decompressor here, but set the compressor only after
+                # a successful Ready message
+                self.decompressor = decompr
 
         sm = StartupMessage(cqlversion=self.cql_version, options=opts)
         startup_response = self.wait_for_request(sm)
         while True:
             if isinstance(startup_response, ReadyMessage):
                 self.conn_ready = True
+                if compresstype:
+                    self.compressor = compr
                 break
             if isinstance(startup_response, AuthenticateMessage):
                 self.authenticator = startup_response.authenticator
@@ -779,6 +812,11 @@ class NativeConnection(Connection):
 
         return self.wait_for_requests(msg)[0]
 
+    def send_msg(self, msg):
+        reqid = self.make_reqid()
+        msg.send(self.socketf, reqid, compression=self.compressor)
+        return reqid
+
     def wait_for_requests(self, *msgs):
         """
         Given any number of message objects, send them all to the server
@@ -789,9 +827,8 @@ class NativeConnection(Connection):
 
         reqids = []
         for msg in msgs:
-            reqid = self.make_reqid()
+            reqid = self.send_msg(msg)
             reqids.append(reqid)
-            msg.send(self.socketf, reqid)
         resultdict = self.wait_for_results(*reqids)
         return [resultdict[reqid] for reqid in reqids]
 
@@ -813,7 +850,7 @@ class NativeConnection(Connection):
                 results[r] = result
                 waiting_for.remove(r)
         while waiting_for:
-            newmsg = read_frame(self.socketf)
+            newmsg = read_frame(self.socketf, decompressor=self.decompressor)
             if newmsg.stream_id in waiting_for:
                 results[newmsg.stream_id] = newmsg
                 waiting_for.remove(newmsg.stream_id)
@@ -867,6 +904,5 @@ class NativeConnection(Connection):
         it may have to wait until something else waits on a result.
         """
 
-        reqid = self.make_reqid()
-        msg.send(self.socketf, reqid)
+        reqid = self.send_msg(msg)
         self.callback_when(reqid, cb)
