@@ -388,7 +388,7 @@ class ResultMessage(_MessageType):
         return CqlResult(column_metadata=colspecs, rows=rows)
 
     @classmethod
-    def recv_results_prepared(self, f):
+    def recv_results_prepared(cls, f):
         queryid = read_int(f)
         colspecs = cls.recv_results_metadata(f)
         return (queryid, colspecs)
@@ -625,7 +625,8 @@ class NativeCursor(Cursor):
         return self._connection.wait_for_request(QueryMessage(query=query))
 
     def get_response_prepared(self, prepared_query, params):
-        em = ExecuteMessage(queryid=prepared_query.itemid, queryparams=params)
+        qparams = [params[pname] for pname in prepared_query.paramnames]
+        em = ExecuteMessage(queryid=prepared_query.itemid, queryparams=qparams)
         return self._connection.wait_for_request(em)
 
     def get_column_metadata(self, column_id):

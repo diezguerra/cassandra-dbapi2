@@ -137,7 +137,7 @@ def lookup_casstype(casstype):
 
     """
 
-    if isinstance(casstype, CassandraType):
+    if isinstance(casstype, (CassandraType, CassandraTypeType)):
         return casstype
     try:
         return parse_casstype_args(casstype)

@@ -25,7 +25,7 @@ import decimal
 
 TEST_HOST = os.environ.get('CQL_TEST_HOST', 'localhost')
 TEST_PORT = int(os.environ.get('CQL_TEST_PORT', 9170))
-TEST_CQL_VERSION = '3.0.0-beta1'
+TEST_CQL_VERSION = os.environ.get('CQL_TEST_VERSION', '3.0.0-beta1')
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -40,7 +40,7 @@ class TestPreparedQueries(unittest.TestCase):
     def setUp(self):
         try:
             self.dbconn = cql.connect(TEST_HOST, TEST_PORT, cql_version=TEST_CQL_VERSION)
-        except cql.cursor.TApplicationException:
+        except cql.thrifteries.TApplicationException:
             # set_cql_version (and thus, cql3) not supported; skip all of these
             self.cursor = None
             return

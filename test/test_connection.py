@@ -29,34 +29,35 @@ TEST_PORT = test_cql.TEST_PORT
 randstring = test_cql.randstring
 del test_cql
 
+@contextlib.contextmanager
+def with_keyspace(randstr, cursor, cqlver):
+    ksname = randstr + '_conntest_' + cqlver.encode('ascii').replace('.', '_')
+    if cqlver.startswith('2.'):
+        cursor.execute("create keyspace '%s' with strategy_class='SimpleStrategy'"
+                       " and strategy_options:replication_factor=1;" % ksname)
+        cursor.execute("use '%s'" % ksname)
+        yield ksname
+        cursor.execute("use system;")
+        cursor.execute("drop keyspace '%s'" % ksname)
+    elif cqlver == '3.0.0-beta1': # for cassandra 1.1
+        cursor.execute("create keyspace \"%s\" with strategy_class='SimpleStrategy'"
+                       " and strategy_options:replication_factor=1;" % ksname)
+        cursor.execute('use "%s"' % ksname)
+        yield ksname
+        cursor.execute('use system;')
+        cursor.execute('drop keyspace "%s"' % ksname)
+    else:
+        cursor.execute("create keyspace \"%s\" with replication = "
+                       "{'class': 'SimpleStrategy', 'replication_factor': 1};" % ksname)
+        cursor.execute('use "%s"' % ksname)
+        yield ksname
+        cursor.execute('use system;')
+        cursor.execute('drop keyspace "%s"' % ksname)
+
 class TestConnection(unittest.TestCase):
     def setUp(self):
         self.randstr = randstring()
-
-    @contextlib.contextmanager
-    def with_keyspace(self, cursor, cqlver):
-        ksname = self.randstr + '_conntest_' + cqlver.replace('.', '_')
-        if cqlver.startswith('2.'):
-            cursor.execute("create keyspace '%s' with strategy_class='SimpleStrategy'"
-                           " and strategy_options:replication_factor=1;" % ksname)
-            cursor.execute("use '%s'" % ksname)
-            yield ksname
-            cursor.execute("use system;")
-            cursor.execute("drop keyspace '%s'" % ksname)
-        elif cqlver == '3.0.0-beta1': # for cassandra 1.1
-            cursor.execute("create keyspace \"%s\" with strategy_class='SimpleStrategy'"
-                           " and strategy_options:replication_factor=1;" % ksname)
-            cursor.execute('use "%s"' % ksname)
-            yield ksname
-            cursor.execute('use system;')
-            cursor.execute('drop keyspace "%s"' % ksname)
-        else:
-            cursor.execute("create keyspace \"%s\" with replication = "
-                           "{'class': 'SimpleStrategy', 'replication_factor': 1};" % ksname)
-            cursor.execute('use "%s"' % ksname)
-            yield ksname
-            cursor.execute('use system;')
-            cursor.execute('drop keyspace "%s"' % ksname)
+        self.with_keyspace = lambda curs, ver: with_keyspace(self.randstr, curs, ver)
 
     def test_connecting_with_cql_version(self):
         conn = cql.connect(TEST_HOST, TEST_PORT, cql_version='2.0.0')
@@ -100,4 +101,4 @@ class TestConnection(unittest.TestCase):
             curs.execute('create table blah (a int primary key, b int);')
             curs.execute('select * from blah;')
         conn.close()
-        self.assertRaises(TTransport.TTransportException, curs.execute, 'select * from blah;')
+        self.assertRaises(cql.ProgrammingError, curs.execute, 'select * from blah;')
