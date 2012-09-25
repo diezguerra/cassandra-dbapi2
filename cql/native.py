@@ -15,7 +15,8 @@
 # limitations under the License.
 
 import cql
-from cql.marshal import int32_pack, int32_unpack, uint16_pack, uint16_unpack
+from cql.marshal import (int32_pack, int32_unpack, uint16_pack, uint16_unpack,
+                         int8_pack, int8_unpack)
 from cql.cqltypes import lookup_cqltype
 from cql.connection import Connection
 from cql.cursor import Cursor, _VOID_DESCRIPTION, _COUNT_DESCRIPTION
@@ -32,8 +33,6 @@ except ImportError:
 PROTOCOL_VERSION             = 0x01
 PROTOCOL_VERSION_MASK        = 0x7f
 
-# XXX: should these be called request/response instead? unclear which one will
-# apply if/when the server initiates streams in the other direction.
 HEADER_DIRECTION_FROM_CLIENT = 0x00
 HEADER_DIRECTION_TO_CLIENT   = 0x80
 HEADER_DIRECTION_MASK        = 0x80
@@ -95,7 +94,8 @@ class _MessageType(object):
             body = compression(body)
             flags |= 0x1
         msglen = int32_pack(len(body))
-        header = '%c%c%c%c%s' % (version, flags, streamid, self.opcode, msglen)
+        header = ''.join(map(int8_pack, (version, flags, streamid, self.opcode))) \
+                 + msglen
         f.write(header)
         if len(body) > 0:
             f.write(body)
@@ -107,7 +107,7 @@ class _MessageType(object):
 
 def read_frame(f, decompressor=None):
     header = f.read(8)
-    version, flags, stream, opcode = map(ord, header[:4])
+    version, flags, stream, opcode = map(int8_unpack, header[:4])
     body_len = int32_unpack(header[4:])
     assert version & PROTOCOL_VERSION_MASK == PROTOCOL_VERSION, \
             "Unsupported CQL protocol version %d" % version
@@ -496,10 +496,10 @@ class EventMessage(_MessageType):
 
 
 def read_byte(f):
-    return ord(f.read(1))
+    return int8_unpack(f.read(1))
 
 def write_byte(f, b):
-    f.write(chr(b))
+    f.write(int8_pack(b))
 
 def read_int(f):
     return int32_unpack(f.read(4))
@@ -734,6 +734,7 @@ class NativeConnection(Connection):
         self.waiting = {}
         self.conn_ready = False
         self.compressor = self.decompressor = None
+        self.event_watchers = {}
         Connection.__init__(self, *args, **kwargs)
 
     def establish_connection(self):
@@ -838,6 +839,10 @@ class NativeConnection(Connection):
         Given any number of stream-ids, wait until responses have arrived for
         each one, and return a dictionary mapping the stream-ids to the
         appropriate results.
+
+        For internal use, None may be passed in place of a reqid, which will
+        be considered satisfied when a message of any kind is received (and, if
+        appropriate, handled).
         """
 
         waiting_for = set(reqids)
@@ -857,6 +862,9 @@ class NativeConnection(Connection):
                 waiting_for.remove(newmsg.stream_id)
             else:
                 self.handle_incoming(newmsg)
+            if None in waiting_for:
+                results[None] = newmsg
+                waiting_for.remove(None)
         return results
 
     def wait_for_result(self, reqid):
@@ -907,3 +915,79 @@ class NativeConnection(Connection):
 
         reqid = self.send_msg(msg)
         self.callback_when(reqid, cb)
+
+    def handle_pushed(self, msg):
+        """
+        Process an incoming message originated by the server.
+        """
+        watchers = self.event_watchers.get(msg.eventtype, ())
+        for cb in watchers:
+            cb(msg.eventargs)
+
+    def register_watcher(self, eventtype, cb):
+        """
+        Request that any events of the given type be passed to the given
+        callback when they arrive. Note that the callback may not be called
+        immediately upon the arrival of the event packet; it may have to wait
+        until something else waits on a result, or until wait_for_even() is
+        called.
+
+        If the event type has not been registered for already, this may
+        block while a new REGISTER message is sent to the server.
+
+        The available event types are in the cql.native.known_event_types
+        list.
+
+        When an event arrives, a dictionary will be passed to the callback
+        with the info about the event. Some example result dictionaries:
+
+        (For STATUS_CHANGE events:)
+
+          {'changetype': u'DOWN', 'address': ('12.114.19.76', 8000)}
+
+        (For TOPOLOGY_CHANGE events:)
+
+          {'changetype': u'NEW_NODE', 'address': ('19.10.122.13', 8000)}
+        """
+
+        if isinstance(eventtype, str):
+            eventtype = eventtype.decode('utf8')
+        try:
+            watchers = self.event_watchers[eventtype]
+        except KeyError:
+            ans = self.wait_for_request(RegisterMessage(eventlist=(eventtype,)))
+            if isinstance(ans, ErrorMessage):
+                raise cql.ProgrammingError("Server did not accept registration"
+                                           " for %s events: %s"
+                                           % (eventtype, ans.summarymsg()))
+            watchers = self.event_watchers.setdefault(eventtype, [])
+        watchers.append(cb)
+
+    def unregister_watcher(self, eventtype, cb):
+        """
+        Given an eventtype and a callback previously registered with
+        register_watcher(), remove that callback from the list of watchers for
+        the given event type.
+        """
+
+        if isinstance(eventtype, str):
+            eventtype = eventtype.decode('utf8')
+        self.event_watchers[eventtype].remove(cb)
+
+    def wait_for_event(self):
+        """
+        Wait for any sort of event to arrive, and handle it via the
+        registered callbacks. It is recommended that some event watchers
+        be registered before calling this; otherwise, no events will be
+        sent by the server.
+        """
+        eventsseen = []
+        def i_saw_an_event(ev):
+            eventsseen.append(ev)
+        wlists = self.event_watchers.values()
+        for wlist in wlists:
+            wlist.append(i_saw_an_event)
+        while not eventsseen:
+            self.wait_for_result(None)
+        for wlist in wlists:
+            wlist.remove(i_saw_an_event)
