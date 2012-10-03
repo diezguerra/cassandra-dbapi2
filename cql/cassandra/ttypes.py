@@ -114,15 +114,18 @@ class IndexOperator:
 class IndexType:
   KEYS = 0
   CUSTOM = 1
+  COMPOSITES = 2
 
   _VALUES_TO_NAMES = {
     0: "KEYS",
     1: "CUSTOM",
+    2: "COMPOSITES",
   }
 
   _NAMES_TO_VALUES = {
     "KEYS": 0,
     "CUSTOM": 1,
+    "COMPOSITES": 2,
   }
 
 class Compression:
@@ -796,10 +799,24 @@ class UnavailableException(Exception):
 class TimedOutException(Exception):
   """
   RPC timeout was exceeded.  either a node failed mid-operation, or load was too high, or the requested op was too large.
+
+  Attributes:
+   - acknowledged_by: if a write operation was acknowledged by some replicas but not by enough to
+  satisfy the required ConsistencyLevel, the number of successful
+  replies will be given here. In case of atomic_batch_mutate method this field
+  will be set to -1 if the batch was written to the batchlog and to 0 if it wasn't.
+   - acknowledged_by_batchlog: in case of atomic_batch_mutate method this field tells if the batch was written to the batchlog.
   """
 
   thrift_spec = (
+    None, # 0
+    (1, TType.I32, 'acknowledged_by', None, None, ), # 1
+    (2, TType.BOOL, 'acknowledged_by_batchlog', None, None, ), # 2
   )
+
+  def __init__(self, acknowledged_by=None, acknowledged_by_batchlog=None,):
+    self.acknowledged_by = acknowledged_by
+    self.acknowledged_by_batchlog = acknowledged_by_batchlog
 
   def read(self, iprot):
     if iprot.__class__ == TBinaryProtocol.TBinaryProtocolAccelerated and isinstance(iprot.trans, TTransport.CReadableTransport) and self.thrift_spec is not None and fastbinary is not None:
@@ -810,6 +827,16 @@ class TimedOutException(Exception):
       (fname, ftype, fid) = iprot.readFieldBegin()
       if ftype == TType.STOP:
         break
+      if fid == 1:
+        if ftype == TType.I32:
+          self.acknowledged_by = iprot.readI32();
+        else:
+          iprot.skip(ftype)
+      elif fid == 2:
+        if ftype == TType.BOOL:
+          self.acknowledged_by_batchlog = iprot.readBool();
+        else:
+          iprot.skip(ftype)
       else:
         iprot.skip(ftype)
       iprot.readFieldEnd()
@@ -820,6 +847,14 @@ class TimedOutException(Exception):
       oprot.trans.write(fastbinary.encode_binary(self, (self.__class__, self.thrift_spec)))
       return
     oprot.writeStructBegin('TimedOutException')
+    if self.acknowledged_by is not None:
+      oprot.writeFieldBegin('acknowledged_by', TType.I32, 1)
+      oprot.writeI32(self.acknowledged_by)
+      oprot.writeFieldEnd()
+    if self.acknowledged_by_batchlog is not None:
+      oprot.writeFieldBegin('acknowledged_by_batchlog', TType.BOOL, 2)
+      oprot.writeBool(self.acknowledged_by_batchlog)
+      oprot.writeFieldEnd()
     oprot.writeFieldStop()
     oprot.writeStructEnd()
 
@@ -977,6 +1012,9 @@ class AuthorizationException(Exception):
 
 class SchemaDisagreementException(Exception):
   """
+  NOTE: This up outdated exception left for backward compatibility reasons,
+  no actual schema agreement validation is done starting from Cassandra 1.2
+
   schemas are not in agreement across all nodes
   """
 
@@ -2516,7 +2554,6 @@ class CfDef:
    - min_compaction_threshold
    - max_compaction_threshold
    - replicate_on_write
-   - merge_shards_chance
    - key_validation_class
    - key_alias
    - compaction_strategy
@@ -2524,8 +2561,17 @@ class CfDef:
    - compression_options
    - bloom_filter_fp_chance
    - caching
-   - column_aliases
-   - value_alias
+   - dclocal_read_repair_chance
+   - row_cache_size: @deprecated
+   - key_cache_size: @deprecated
+   - row_cache_save_period_in_seconds: @deprecated
+   - key_cache_save_period_in_seconds: @deprecated
+   - memtable_flush_after_mins: @deprecated
+   - memtable_throughput_in_mb: @deprecated
+   - memtable_operations_in_millions: @deprecated
+   - merge_shards_chance: @deprecated
+   - row_cache_provider: @deprecated
+   - row_cache_keys_to_save: @deprecated
   """
 
   thrift_spec = (
@@ -2538,37 +2584,38 @@ class CfDef:
     (6, TType.STRING, 'subcomparator_type', None, None, ), # 6
     None, # 7
     (8, TType.STRING, 'comment', None, None, ), # 8
-    None, # 9
+    (9, TType.DOUBLE, 'row_cache_size', None, None, ), # 9
     None, # 10
-    None, # 11
-    (12, TType.DOUBLE, 'read_repair_chance', None, 1, ), # 12
+    (11, TType.DOUBLE, 'key_cache_size', None, None, ), # 11
+    (12, TType.DOUBLE, 'read_repair_chance', None, None, ), # 12
     (13, TType.LIST, 'column_metadata', (TType.STRUCT,(ColumnDef, ColumnDef.thrift_spec)), None, ), # 13
     (14, TType.I32, 'gc_grace_seconds', None, None, ), # 14
     (15, TType.STRING, 'default_validation_class', None, None, ), # 15
     (16, TType.I32, 'id', None, None, ), # 16
     (17, TType.I32, 'min_compaction_threshold', None, None, ), # 17
     (18, TType.I32, 'max_compaction_threshold', None, None, ), # 18
-    None, # 19
-    None, # 20
-    None, # 21
-    None, # 22
-    None, # 23
+    (19, TType.I32, 'row_cache_save_period_in_seconds', None, None, ), # 19
+    (20, TType.I32, 'key_cache_save_period_in_seconds', None, None, ), # 20
+    (21, TType.I32, 'memtable_flush_after_mins', None, None, ), # 21
+    (22, TType.I32, 'memtable_throughput_in_mb', None, None, ), # 22
+    (23, TType.DOUBLE, 'memtable_operations_in_millions', None, None, ), # 23
     (24, TType.BOOL, 'replicate_on_write', None, None, ), # 24
     (25, TType.DOUBLE, 'merge_shards_chance', None, None, ), # 25
     (26, TType.STRING, 'key_validation_class', None, None, ), # 26
-    None, # 27
+    (27, TType.STRING, 'row_cache_provider', None, None, ), # 27
     (28, TType.STRING, 'key_alias', None, None, ), # 28
     (29, TType.STRING, 'compaction_strategy', None, None, ), # 29
     (30, TType.MAP, 'compaction_strategy_options', (TType.STRING,None,TType.STRING,None), None, ), # 30
-    None, # 31
+    (31, TType.I32, 'row_cache_keys_to_save', None, None, ), # 31
     (32, TType.MAP, 'compression_options', (TType.STRING,None,TType.STRING,None), None, ), # 32
     (33, TType.DOUBLE, 'bloom_filter_fp_chance', None, None, ), # 33
     (34, TType.STRING, 'caching', None, "keys_only", ), # 34
-    (35, TType.LIST, 'column_aliases', (TType.STRING,None), None, ), # 35
-    (36, TType.STRING, 'value_alias', None, None, ), # 36
+    None, # 35
+    None, # 36
+    (37, TType.DOUBLE, 'dclocal_read_repair_chance', None, 0, ), # 37
   )
 
-  def __init__(self, keyspace=None, name=None, column_type=thrift_spec[3][4], comparator_type=thrift_spec[5][4], subcomparator_type=None, comment=None, read_repair_chance=thrift_spec[12][4], column_metadata=None, gc_grace_seconds=None, default_validation_class=None, id=None, min_compaction_threshold=None, max_compaction_threshold=None, replicate_on_write=None, merge_shards_chance=None, key_validation_class=None, key_alias=None, compaction_strategy=None, compaction_strategy_options=None, compression_options=None, bloom_filter_fp_chance=None, caching=thrift_spec[34][4], column_aliases=None, value_alias=None,):
+  def __init__(self, keyspace=None, name=None, column_type=thrift_spec[3][4], comparator_type=thrift_spec[5][4], subcomparator_type=None, comment=None, read_repair_chance=None, column_metadata=None, gc_grace_seconds=None, default_validation_class=None, id=None, min_compaction_threshold=None, max_compaction_threshold=None, replicate_on_write=None, key_validation_class=None, key_alias=None, compaction_strategy=None, compaction_strategy_options=None, compression_options=None, bloom_filter_fp_chance=None, caching=thrift_spec[34][4], dclocal_read_repair_chance=thrift_spec[37][4], row_cache_size=None, key_cache_size=None, row_cache_save_period_in_seconds=None, key_cache_save_period_in_seconds=None, memtable_flush_after_mins=None, memtable_throughput_in_mb=None, memtable_operations_in_millions=None, merge_shards_chance=None, row_cache_provider=None, row_cache_keys_to_save=None,):
     self.keyspace = keyspace
     self.name = name
     self.column_type = column_type
@@ -2583,7 +2630,6 @@ class CfDef:
     self.min_compaction_threshold = min_compaction_threshold
     self.max_compaction_threshold = max_compaction_threshold
     self.replicate_on_write = replicate_on_write
-    self.merge_shards_chance = merge_shards_chance
     self.key_validation_class = key_validation_class
     self.key_alias = key_alias
     self.compaction_strategy = compaction_strategy
@@ -2591,8 +2637,17 @@ class CfDef:
     self.compression_options = compression_options
     self.bloom_filter_fp_chance = bloom_filter_fp_chance
     self.caching = caching
-    self.column_aliases = column_aliases
-    self.value_alias = value_alias
+    self.dclocal_read_repair_chance = dclocal_read_repair_chance
+    self.row_cache_size = row_cache_size
+    self.key_cache_size = key_cache_size
+    self.row_cache_save_period_in_seconds = row_cache_save_period_in_seconds
+    self.key_cache_save_period_in_seconds = key_cache_save_period_in_seconds
+    self.memtable_flush_after_mins = memtable_flush_after_mins
+    self.memtable_throughput_in_mb = memtable_throughput_in_mb
+    self.memtable_operations_in_millions = memtable_operations_in_millions
+    self.merge_shards_chance = merge_shards_chance
+    self.row_cache_provider = row_cache_provider
+    self.row_cache_keys_to_save = row_cache_keys_to_save
 
   def read(self, iprot):
     if iprot.__class__ == TBinaryProtocol.TBinaryProtocolAccelerated and isinstance(iprot.trans, TTransport.CReadableTransport) and self.thrift_spec is not None and fastbinary is not None:
@@ -2679,11 +2734,6 @@ class CfDef:
           self.replicate_on_write = iprot.readBool();
         else:
           iprot.skip(ftype)
-      elif fid == 25:
-        if ftype == TType.DOUBLE:
-          self.merge_shards_chance = iprot.readDouble();
-        else:
-          iprot.skip(ftype)
       elif fid == 26:
         if ftype == TType.STRING:
           self.key_validation_class = iprot.readString();
@@ -2731,19 +2781,59 @@ class CfDef:
           self.caching = iprot.readString();
         else:
           iprot.skip(ftype)
-      elif fid == 35:
-        if ftype == TType.LIST:
-          self.column_aliases = []
-          (_etype104, _size101) = iprot.readListBegin()
-          for _i105 in xrange(_size101):
-            _elem106 = iprot.readString();
-            self.column_aliases.append(_elem106)
-          iprot.readListEnd()
+      elif fid == 37:
+        if ftype == TType.DOUBLE:
+          self.dclocal_read_repair_chance = iprot.readDouble();
         else:
           iprot.skip(ftype)
-      elif fid == 36:
+      elif fid == 9:
+        if ftype == TType.DOUBLE:
+          self.row_cache_size = iprot.readDouble();
+        else:
+          iprot.skip(ftype)
+      elif fid == 11:
+        if ftype == TType.DOUBLE:
+          self.key_cache_size = iprot.readDouble();
+        else:
+          iprot.skip(ftype)
+      elif fid == 19:
+        if ftype == TType.I32:
+          self.row_cache_save_period_in_seconds = iprot.readI32();
+        else:
+          iprot.skip(ftype)
+      elif fid == 20:
+        if ftype == TType.I32:
+          self.key_cache_save_period_in_seconds = iprot.readI32();
+        else:
+          iprot.skip(ftype)
+      elif fid == 21:
+        if ftype == TType.I32:
+          self.memtable_flush_after_mins = iprot.readI32();
+        else:
+          iprot.skip(ftype)
+      elif fid == 22:
+        if ftype == TType.I32:
+          self.memtable_throughput_in_mb = iprot.readI32();
+        else:
+          iprot.skip(ftype)
+      elif fid == 23:
+        if ftype == TType.DOUBLE:
+          self.memtable_operations_in_millions = iprot.readDouble();
+        else:
+          iprot.skip(ftype)
+      elif fid == 25:
+        if ftype == TType.DOUBLE:
+          self.merge_shards_chance = iprot.readDouble();
+        else:
+          iprot.skip(ftype)
+      elif fid == 27:
         if ftype == TType.STRING:
-          self.value_alias = iprot.readString();
+          self.row_cache_provider = iprot.readString();
+        else:
+          iprot.skip(ftype)
+      elif fid == 31:
+        if ftype == TType.I32:
+          self.row_cache_keys_to_save = iprot.readI32();
         else:
           iprot.skip(ftype)
       else:
@@ -2780,6 +2870,14 @@ class CfDef:
       oprot.writeFieldBegin('comment', TType.STRING, 8)
       oprot.writeString(self.comment)
       oprot.writeFieldEnd()
+    if self.row_cache_size is not None:
+      oprot.writeFieldBegin('row_cache_size', TType.DOUBLE, 9)
+      oprot.writeDouble(self.row_cache_size)
+      oprot.writeFieldEnd()
+    if self.key_cache_size is not None:
+      oprot.writeFieldBegin('key_cache_size', TType.DOUBLE, 11)
+      oprot.writeDouble(self.key_cache_size)
+      oprot.writeFieldEnd()
     if self.read_repair_chance is not None:
       oprot.writeFieldBegin('read_repair_chance', TType.DOUBLE, 12)
       oprot.writeDouble(self.read_repair_chance)
@@ -2787,8 +2885,8 @@ class CfDef:
     if self.column_metadata is not None:
       oprot.writeFieldBegin('column_metadata', TType.LIST, 13)
       oprot.writeListBegin(TType.STRUCT, len(self.column_metadata))
-      for iter107 in self.column_metadata:
-        iter107.write(oprot)
+      for iter101 in self.column_metadata:
+        iter101.write(oprot)
       oprot.writeListEnd()
       oprot.writeFieldEnd()
     if self.gc_grace_seconds is not None:
@@ -2811,6 +2909,26 @@ class CfDef:
       oprot.writeFieldBegin('max_compaction_threshold', TType.I32, 18)
       oprot.writeI32(self.max_compaction_threshold)
       oprot.writeFieldEnd()
+    if self.row_cache_save_period_in_seconds is not None:
+      oprot.writeFieldBegin('row_cache_save_period_in_seconds', TType.I32, 19)
+      oprot.writeI32(self.row_cache_save_period_in_seconds)
+      oprot.writeFieldEnd()
+    if self.key_cache_save_period_in_seconds is not None:
+      oprot.writeFieldBegin('key_cache_save_period_in_seconds', TType.I32, 20)
+      oprot.writeI32(self.key_cache_save_period_in_seconds)
+      oprot.writeFieldEnd()
+    if self.memtable_flush_after_mins is not None:
+      oprot.writeFieldBegin('memtable_flush_after_mins', TType.I32, 21)
+      oprot.writeI32(self.memtable_flush_after_mins)
+      oprot.writeFieldEnd()
+    if self.memtable_throughput_in_mb is not None:
+      oprot.writeFieldBegin('memtable_throughput_in_mb', TType.I32, 22)
+      oprot.writeI32(self.memtable_throughput_in_mb)
+      oprot.writeFieldEnd()
+    if self.memtable_operations_in_millions is not None:
+      oprot.writeFieldBegin('memtable_operations_in_millions', TType.DOUBLE, 23)
+      oprot.writeDouble(self.memtable_operations_in_millions)
+      oprot.writeFieldEnd()
     if self.replicate_on_write is not None:
       oprot.writeFieldBegin('replicate_on_write', TType.BOOL, 24)
       oprot.writeBool(self.replicate_on_write)
@@ -2823,6 +2941,10 @@ class CfDef:
       oprot.writeFieldBegin('key_validation_class', TType.STRING, 26)
       oprot.writeString(self.key_validation_class)
       oprot.writeFieldEnd()
+    if self.row_cache_provider is not None:
+      oprot.writeFieldBegin('row_cache_provider', TType.STRING, 27)
+      oprot.writeString(self.row_cache_provider)
+      oprot.writeFieldEnd()
     if self.key_alias is not None:
       oprot.writeFieldBegin('key_alias', TType.STRING, 28)
       oprot.writeString(self.key_alias)
@@ -2834,17 +2956,21 @@ class CfDef:
     if self.compaction_strategy_options is not None:
       oprot.writeFieldBegin('compaction_strategy_options', TType.MAP, 30)
       oprot.writeMapBegin(TType.STRING, TType.STRING, len(self.compaction_strategy_options))
-      for kiter108,viter109 in self.compaction_strategy_options.items():
-        oprot.writeString(kiter108)
-        oprot.writeString(viter109)
+      for kiter102,viter103 in self.compaction_strategy_options.items():
+        oprot.writeString(kiter102)
+        oprot.writeString(viter103)
       oprot.writeMapEnd()
+      oprot.writeFieldEnd()
+    if self.row_cache_keys_to_save is not None:
+      oprot.writeFieldBegin('row_cache_keys_to_save', TType.I32, 31)
+      oprot.writeI32(self.row_cache_keys_to_save)
       oprot.writeFieldEnd()
     if self.compression_options is not None:
       oprot.writeFieldBegin('compression_options', TType.MAP, 32)
       oprot.writeMapBegin(TType.STRING, TType.STRING, len(self.compression_options))
-      for kiter110,viter111 in self.compression_options.items():
-        oprot.writeString(kiter110)
-        oprot.writeString(viter111)
+      for kiter104,viter105 in self.compression_options.items():
+        oprot.writeString(kiter104)
+        oprot.writeString(viter105)
       oprot.writeMapEnd()
       oprot.writeFieldEnd()
     if self.bloom_filter_fp_chance is not None:
@@ -2855,16 +2981,9 @@ class CfDef:
       oprot.writeFieldBegin('caching', TType.STRING, 34)
       oprot.writeString(self.caching)
       oprot.writeFieldEnd()
-    if self.column_aliases is not None:
-      oprot.writeFieldBegin('column_aliases', TType.LIST, 35)
-      oprot.writeListBegin(TType.STRING, len(self.column_aliases))
-      for iter112 in self.column_aliases:
-        oprot.writeString(iter112)
-      oprot.writeListEnd()
-      oprot.writeFieldEnd()
-    if self.value_alias is not None:
-      oprot.writeFieldBegin('value_alias', TType.STRING, 36)
-      oprot.writeString(self.value_alias)
+    if self.dclocal_read_repair_chance is not None:
+      oprot.writeFieldBegin('dclocal_read_repair_chance', TType.DOUBLE, 37)
+      oprot.writeDouble(self.dclocal_read_repair_chance)
       oprot.writeFieldEnd()
     oprot.writeFieldStop()
     oprot.writeStructEnd()
@@ -2894,6 +3013,7 @@ class KsDef:
    - name
    - strategy_class
    - strategy_options
+   - replication_factor: @deprecated, ignored
    - cf_defs
    - durable_writes
   """
@@ -2903,15 +3023,16 @@ class KsDef:
     (1, TType.STRING, 'name', None, None, ), # 1
     (2, TType.STRING, 'strategy_class', None, None, ), # 2
     (3, TType.MAP, 'strategy_options', (TType.STRING,None,TType.STRING,None), None, ), # 3
-    None, # 4
+    (4, TType.I32, 'replication_factor', None, None, ), # 4
     (5, TType.LIST, 'cf_defs', (TType.STRUCT,(CfDef, CfDef.thrift_spec)), None, ), # 5
     (6, TType.BOOL, 'durable_writes', None, True, ), # 6
   )
 
-  def __init__(self, name=None, strategy_class=None, strategy_options=None, cf_defs=None, durable_writes=thrift_spec[6][4],):
+  def __init__(self, name=None, strategy_class=None, strategy_options=None, replication_factor=None, cf_defs=None, durable_writes=thrift_spec[6][4],):
     self.name = name
     self.strategy_class = strategy_class
     self.strategy_options = strategy_options
+    self.replication_factor = replication_factor
     self.cf_defs = cf_defs
     self.durable_writes = durable_writes
 
@@ -2937,22 +3058,27 @@ class KsDef:
       elif fid == 3:
         if ftype == TType.MAP:
           self.strategy_options = {}
-          (_ktype114, _vtype115, _size113 ) = iprot.readMapBegin() 
-          for _i117 in xrange(_size113):
-            _key118 = iprot.readString();
-            _val119 = iprot.readString();
-            self.strategy_options[_key118] = _val119
+          (_ktype107, _vtype108, _size106 ) = iprot.readMapBegin() 
+          for _i110 in xrange(_size106):
+            _key111 = iprot.readString();
+            _val112 = iprot.readString();
+            self.strategy_options[_key111] = _val112
           iprot.readMapEnd()
+        else:
+          iprot.skip(ftype)
+      elif fid == 4:
+        if ftype == TType.I32:
+          self.replication_factor = iprot.readI32();
         else:
           iprot.skip(ftype)
       elif fid == 5:
         if ftype == TType.LIST:
           self.cf_defs = []
-          (_etype123, _size120) = iprot.readListBegin()
-          for _i124 in xrange(_size120):
-            _elem125 = CfDef()
-            _elem125.read(iprot)
-            self.cf_defs.append(_elem125)
+          (_etype116, _size113) = iprot.readListBegin()
+          for _i117 in xrange(_size113):
+            _elem118 = CfDef()
+            _elem118.read(iprot)
+            self.cf_defs.append(_elem118)
           iprot.readListEnd()
         else:
           iprot.skip(ftype)
@@ -2982,16 +3108,20 @@ class KsDef:
     if self.strategy_options is not None:
       oprot.writeFieldBegin('strategy_options', TType.MAP, 3)
       oprot.writeMapBegin(TType.STRING, TType.STRING, len(self.strategy_options))
-      for kiter126,viter127 in self.strategy_options.items():
-        oprot.writeString(kiter126)
-        oprot.writeString(viter127)
+      for kiter119,viter120 in self.strategy_options.items():
+        oprot.writeString(kiter119)
+        oprot.writeString(viter120)
       oprot.writeMapEnd()
+      oprot.writeFieldEnd()
+    if self.replication_factor is not None:
+      oprot.writeFieldBegin('replication_factor', TType.I32, 4)
+      oprot.writeI32(self.replication_factor)
       oprot.writeFieldEnd()
     if self.cf_defs is not None:
       oprot.writeFieldBegin('cf_defs', TType.LIST, 5)
       oprot.writeListBegin(TType.STRUCT, len(self.cf_defs))
-      for iter128 in self.cf_defs:
-        iter128.write(oprot)
+      for iter121 in self.cf_defs:
+        iter121.write(oprot)
       oprot.writeListEnd()
       oprot.writeFieldEnd()
     if self.durable_writes is not None:
@@ -3058,11 +3188,11 @@ class CqlRow:
       elif fid == 2:
         if ftype == TType.LIST:
           self.columns = []
-          (_etype132, _size129) = iprot.readListBegin()
-          for _i133 in xrange(_size129):
-            _elem134 = Column()
-            _elem134.read(iprot)
-            self.columns.append(_elem134)
+          (_etype125, _size122) = iprot.readListBegin()
+          for _i126 in xrange(_size122):
+            _elem127 = Column()
+            _elem127.read(iprot)
+            self.columns.append(_elem127)
           iprot.readListEnd()
         else:
           iprot.skip(ftype)
@@ -3083,8 +3213,8 @@ class CqlRow:
     if self.columns is not None:
       oprot.writeFieldBegin('columns', TType.LIST, 2)
       oprot.writeListBegin(TType.STRUCT, len(self.columns))
-      for iter135 in self.columns:
-        iter135.write(oprot)
+      for iter128 in self.columns:
+        iter128.write(oprot)
       oprot.writeListEnd()
       oprot.writeFieldEnd()
     oprot.writeFieldStop()
@@ -3144,22 +3274,22 @@ class CqlMetadata:
       if fid == 1:
         if ftype == TType.MAP:
           self.name_types = {}
-          (_ktype137, _vtype138, _size136 ) = iprot.readMapBegin() 
-          for _i140 in xrange(_size136):
-            _key141 = iprot.readString();
-            _val142 = iprot.readString();
-            self.name_types[_key141] = _val142
+          (_ktype130, _vtype131, _size129 ) = iprot.readMapBegin() 
+          for _i133 in xrange(_size129):
+            _key134 = iprot.readString();
+            _val135 = iprot.readString();
+            self.name_types[_key134] = _val135
           iprot.readMapEnd()
         else:
           iprot.skip(ftype)
       elif fid == 2:
         if ftype == TType.MAP:
           self.value_types = {}
-          (_ktype144, _vtype145, _size143 ) = iprot.readMapBegin() 
-          for _i147 in xrange(_size143):
-            _key148 = iprot.readString();
-            _val149 = iprot.readString();
-            self.value_types[_key148] = _val149
+          (_ktype137, _vtype138, _size136 ) = iprot.readMapBegin() 
+          for _i140 in xrange(_size136):
+            _key141 = iprot.readString();
+            _val142 = iprot.readString();
+            self.value_types[_key141] = _val142
           iprot.readMapEnd()
         else:
           iprot.skip(ftype)
@@ -3186,17 +3316,17 @@ class CqlMetadata:
     if self.name_types is not None:
       oprot.writeFieldBegin('name_types', TType.MAP, 1)
       oprot.writeMapBegin(TType.STRING, TType.STRING, len(self.name_types))
-      for kiter150,viter151 in self.name_types.items():
-        oprot.writeString(kiter150)
-        oprot.writeString(viter151)
+      for kiter143,viter144 in self.name_types.items():
+        oprot.writeString(kiter143)
+        oprot.writeString(viter144)
       oprot.writeMapEnd()
       oprot.writeFieldEnd()
     if self.value_types is not None:
       oprot.writeFieldBegin('value_types', TType.MAP, 2)
       oprot.writeMapBegin(TType.STRING, TType.STRING, len(self.value_types))
-      for kiter152,viter153 in self.value_types.items():
-        oprot.writeString(kiter152)
-        oprot.writeString(viter153)
+      for kiter145,viter146 in self.value_types.items():
+        oprot.writeString(kiter145)
+        oprot.writeString(viter146)
       oprot.writeMapEnd()
       oprot.writeFieldEnd()
     if self.default_name_type is not None:
@@ -3273,11 +3403,11 @@ class CqlResult:
       elif fid == 2:
         if ftype == TType.LIST:
           self.rows = []
-          (_etype157, _size154) = iprot.readListBegin()
-          for _i158 in xrange(_size154):
-            _elem159 = CqlRow()
-            _elem159.read(iprot)
-            self.rows.append(_elem159)
+          (_etype150, _size147) = iprot.readListBegin()
+          for _i151 in xrange(_size147):
+            _elem152 = CqlRow()
+            _elem152.read(iprot)
+            self.rows.append(_elem152)
           iprot.readListEnd()
         else:
           iprot.skip(ftype)
@@ -3309,8 +3439,8 @@ class CqlResult:
     if self.rows is not None:
       oprot.writeFieldBegin('rows', TType.LIST, 2)
       oprot.writeListBegin(TType.STRUCT, len(self.rows))
-      for iter160 in self.rows:
-        iter160.write(oprot)
+      for iter153 in self.rows:
+        iter153.write(oprot)
       oprot.writeListEnd()
       oprot.writeFieldEnd()
     if self.num is not None:
@@ -3347,6 +3477,7 @@ class CqlPreparedResult:
    - itemId
    - count
    - variable_types
+   - variable_names
   """
 
   thrift_spec = (
@@ -3354,12 +3485,14 @@ class CqlPreparedResult:
     (1, TType.I32, 'itemId', None, None, ), # 1
     (2, TType.I32, 'count', None, None, ), # 2
     (3, TType.LIST, 'variable_types', (TType.STRING,None), None, ), # 3
+    (4, TType.LIST, 'variable_names', (TType.STRING,None), None, ), # 4
   )
 
-  def __init__(self, itemId=None, count=None, variable_types=None,):
+  def __init__(self, itemId=None, count=None, variable_types=None, variable_names=None,):
     self.itemId = itemId
     self.count = count
     self.variable_types = variable_types
+    self.variable_names = variable_names
 
   def read(self, iprot):
     if iprot.__class__ == TBinaryProtocol.TBinaryProtocolAccelerated and isinstance(iprot.trans, TTransport.CReadableTransport) and self.thrift_spec is not None and fastbinary is not None:
@@ -3383,10 +3516,20 @@ class CqlPreparedResult:
       elif fid == 3:
         if ftype == TType.LIST:
           self.variable_types = []
-          (_etype164, _size161) = iprot.readListBegin()
-          for _i165 in xrange(_size161):
-            _elem166 = iprot.readString();
-            self.variable_types.append(_elem166)
+          (_etype157, _size154) = iprot.readListBegin()
+          for _i158 in xrange(_size154):
+            _elem159 = iprot.readString();
+            self.variable_types.append(_elem159)
+          iprot.readListEnd()
+        else:
+          iprot.skip(ftype)
+      elif fid == 4:
+        if ftype == TType.LIST:
+          self.variable_names = []
+          (_etype163, _size160) = iprot.readListBegin()
+          for _i164 in xrange(_size160):
+            _elem165 = iprot.readString();
+            self.variable_names.append(_elem165)
           iprot.readListEnd()
         else:
           iprot.skip(ftype)
@@ -3411,7 +3554,14 @@ class CqlPreparedResult:
     if self.variable_types is not None:
       oprot.writeFieldBegin('variable_types', TType.LIST, 3)
       oprot.writeListBegin(TType.STRING, len(self.variable_types))
-      for iter167 in self.variable_types:
+      for iter166 in self.variable_types:
+        oprot.writeString(iter166)
+      oprot.writeListEnd()
+      oprot.writeFieldEnd()
+    if self.variable_names is not None:
+      oprot.writeFieldBegin('variable_names', TType.LIST, 4)
+      oprot.writeListBegin(TType.STRING, len(self.variable_names))
+      for iter167 in self.variable_names:
         oprot.writeString(iter167)
       oprot.writeListEnd()
       oprot.writeFieldEnd()
