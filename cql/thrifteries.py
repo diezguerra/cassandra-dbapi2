@@ -120,11 +120,13 @@ class ThriftConnection(Connection):
     cursorclass = ThriftCursor
 
     def establish_connection(self):
-        socket = TSocket.TSocket(self.host, self.port)
-        self.transport = TTransport.TFramedTransport(socket)
+        if self.transport is None:
+            socket = TSocket.TSocket(self.host, self.port)
+            socket.open()
+            self.transport = TTransport.TFramedTransport(socket)
+
         protocol = TBinaryProtocol.TBinaryProtocolAccelerated(self.transport)
         self.client = Cassandra.Client(protocol)
-        socket.open()
 
         if self.credentials:
             self.client.login(AuthenticationRequest(credentials=self.credentials))

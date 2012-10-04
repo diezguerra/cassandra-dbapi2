@@ -20,7 +20,7 @@ class Connection(object):
     cql_major_version = 2
 
     def __init__(self, host, port, keyspace, user=None, password=None, cql_version=None,
-                 compression=None):
+                 compression=None, transport=None):
         """
         Params:
         * host .........: hostname of Cassandra node.
@@ -35,12 +35,15 @@ class Connection(object):
         *                 connections, this is treated as a boolean, and if
         *                 true, the connection will try to find a type of
         *                 compression supported by both sides.
+        * transport.....: instantiated Thrift transport to use (optional);
+        *                 not applicable to NativeConnection.
         """
         self.host = host
         self.port = port
         self.keyspace = keyspace
         self.cql_version = cql_version
         self.compression = compression
+        self.transport = transport
         self.open_socket = False
 
         self.credentials = None
@@ -90,7 +93,7 @@ class Connection(object):
 
 # TODO: Pull connections out of a pool instead.
 def connect(host, port=None, keyspace=None, user=None, password=None,
-            cql_version=None, native=False, compression=None):
+            cql_version=None, native=False, compression=None, transport=None):
     """
     Create a connection to a Cassandra node.
 
@@ -107,6 +110,8 @@ def connect(host, port=None, keyspace=None, user=None, password=None,
                 type (like "GZIP"). For native connections, this is treated
                 as a boolean, and if true, the connection will try to find
                 a type of compression supported by both sides.
+    @param transport If set, use this Thrift transport instead of creating one;
+                doesn't apply to native connections.
 
     @returns a Connection instance of the appropriate subclass.
     """
@@ -122,4 +127,5 @@ def connect(host, port=None, keyspace=None, user=None, password=None,
         if port is None:
             port = 9160
     return connclass(host, port, keyspace, user, password,
-                     cql_version=cql_version, compression=compression)
+                     cql_version=cql_version, compression=compression,
+                     transport=transport)
