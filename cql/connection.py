@@ -35,7 +35,7 @@ class Connection(object):
         *                 connections, this is treated as a boolean, and if
         *                 true, the connection will try to find a type of
         *                 compression supported by both sides.
-        * transport.....: instantiated Thrift transport to use (optional);
+        * transport.....: Thrift transport to use (optional);
         *                 not applicable to NativeConnection.
         """
         self.host = host

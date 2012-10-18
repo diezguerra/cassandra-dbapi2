@@ -122,8 +122,10 @@ class ThriftConnection(Connection):
     def establish_connection(self):
         if self.transport is None:
             socket = TSocket.TSocket(self.host, self.port)
-            socket.open()
             self.transport = TTransport.TFramedTransport(socket)
+
+        if not self.transport.isOpen():
+            self.transport.open()
 
         protocol = TBinaryProtocol.TBinaryProtocolAccelerated(self.transport)
         self.client = Cassandra.Client(protocol)
