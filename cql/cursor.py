@@ -44,6 +44,7 @@ class Cursor:
         self.arraysize = 1
         self.rowcount = -1      # Populate on execute()
         self.compression = None
+        self.consistency_level = None
         self.decoder = None
 
     ###
@@ -68,21 +69,24 @@ class Cursor:
             raise cql.ProgrammingError("Unmatched named substitution: " +
                                        "%s not given for %r" % (e, query))
 
-    def execute(self, cql_query, params={}, decoder=None):
+    def execute(self, cql_query, params={}, decoder=None, consistency_level=None):
         # note that 'decoder' here is actually the decoder class, not the
         # instance to be used for decoding. bad naming, but it's in use now.
         if isinstance(cql_query, unicode):
             raise ValueError("CQL query must be bytes, not unicode")
         self.pre_execution_setup()
         prepared_q = self.prepare_inline(cql_query, params)
-        response = self.get_response(prepared_q)
+        cl = consistency_level or self.consistency_level
+        response = self.get_response(prepared_q, cl)
         return self.process_execution_results(response, decoder=decoder)
 
-    def execute_prepared(self, prepared_query, params={}, decoder=None):
+    def execute_prepared(self, prepared_query, params={}, decoder=None,
+                         consistency_level=None):
         # note that 'decoder' here is actually the decoder class, not the
         # instance to be used for decoding. bad naming, but it's in use now.
         self.pre_execution_setup()
-        response = self.get_response_prepared(prepared_query, params)
+        cl = consistency_level or self.consistency_level
+        response = self.get_response_prepared(prepared_query, params, cl)
         return self.process_execution_results(response, decoder=decoder)
 
     def get_metadata_info(self, row):

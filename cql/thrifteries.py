@@ -24,10 +24,11 @@ from thrift.Thrift import TApplicationException
 from thrift.transport import TTransport, TSocket
 from thrift.protocol import TBinaryProtocol
 from cql.cassandra.ttypes import (AuthenticationRequest, Compression,
-        CqlResultType, InvalidRequestException, UnavailableException,
-        TimedOutException, SchemaDisagreementException)
+        ConsistencyLevel, CqlResultType, InvalidRequestException,
+        UnavailableException, TimedOutException, SchemaDisagreementException)
 
 MIN_THRIFT_FOR_PREPARED_QUERIES = (19, 27, 0)
+MIN_THRIFT_FOR_CL_IN_PROTOCOL = (19, 35, 0)
 
 class ThriftCursor(Cursor):
     def __init__(self, parent_connection):
@@ -36,6 +37,9 @@ class ThriftCursor(Cursor):
         if hasattr(parent_connection.client, 'execute_prepared_cql_query') \
                 and parent_connection.remote_thrift_version >= MIN_THRIFT_FOR_PREPARED_QUERIES:
             self.supports_prepared_queries = True
+
+        cl_in_protocol = parent_connection.remote_thrift_version >= MIN_THRIFT_FOR_CL_IN_PROTOCOL
+        self.use_cql3_methods = cl_in_protocol and self.cql_major_version == 3
 
     def compress_query_text(self, querytext):
         if self.compression == 'GZIP':
@@ -50,7 +54,14 @@ class ThriftCursor(Cursor):
             raise ValueError("CQL query must be bytes, not unicode")
         prepared_q_text, paramnames = prepare_query(query)
         compressed_q, compression = self.compress_query_text(prepared_q_text)
-        presult = self._connection.client.prepare_cql_query(compressed_q, compression)
+
+        if self.use_cql3_methods:
+            doquery = self._connection.client.prepare_cql3_query
+        else:
+            doquery = self._connection.client.prepare_cql_query
+
+        presult = doquery(compressed_q, compression)
+
         assert presult.count == len(paramnames)
         if presult.variable_types is None and presult.count > 0:
             raise cql.ProgrammingError("Cassandra did not provide types for bound"
@@ -58,15 +69,27 @@ class ThriftCursor(Cursor):
                                        " supported with cql3.")
         return PreparedQuery(query, presult.itemId, presult.variable_types, paramnames)
 
-    def get_response(self, cql_query):
+    def get_response(self, cql_query, consistency_level):
         compressed_q, compress = self.compress_query_text(cql_query)
-        doquery = self._connection.client.execute_cql_query
-        return self.handle_cql_execution_errors(doquery, compressed_q, compress)
+        cl = getattr(ConsistencyLevel, consistency_level)
+        if self.use_cql3_methods:
+            doquery = self._connection.client.execute_cql3_query
+            return self.handle_cql_execution_errors(doquery, compressed_q, compress, cl)
+        else:
+            doquery = self._connection.client.execute_cql_query
+            return self.handle_cql_execution_errors(doquery, compressed_q, compress)
 
-    def get_response_prepared(self, prepared_query, params):
-        doquery = self._connection.client.execute_prepared_cql_query
+    def get_response_prepared(self, prepared_query, params, consistency_level):
         paramvals = prepared_query.encode_params(params)
-        return self.handle_cql_execution_errors(doquery, prepared_query.itemid, paramvals)
+        cl = getattr(ConsistencyLevel, consistency_level)
+        if self.use_cql3_methods:
+            doquery = self._connection.client.execute_prepared_cql3_query
+            return self.handle_cql_execution_errors(doquery, prepared_query.itemid,
+                                                    paramvals, cl)
+        else:
+            doquery = self._connection.client.execute_prepared_cql_query
+            return self.handle_cql_execution_errors(doquery, prepared_query.itemid,
+                                                    paramvals)
 
     def handle_cql_execution_errors(self, executor, *args, **kwargs):
         try:

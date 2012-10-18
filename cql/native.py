@@ -37,6 +37,28 @@ HEADER_DIRECTION_FROM_CLIENT = 0x00
 HEADER_DIRECTION_TO_CLIENT   = 0x80
 HEADER_DIRECTION_MASK        = 0x80
 
+class ConsistencyLevel(object):
+    @classmethod
+    def name_from_value(cls, value):
+        return {0: 'ANY',
+                1: 'ONE',
+                2: 'TWO',
+                3: 'THREE',
+                4: 'QUORUM',
+                5: 'ALL',
+                6: 'LOCAL_QUORUM',
+                7: 'EACH_QUORUM'}[value]
+
+    @classmethod
+    def value_from_name(cls, name):
+        return {'ANY': 0,
+                'ONE': 1,
+                'TWO': 2,
+                'THREE': 3,
+                'QUORUM': 4,
+                'ALL': 5,
+                'LOCAL_QUORUM': 6,
+                'EACH_QUORUM': 7}[name]
 
 class CqlResult:
     def __init__(self, column_metadata, rows):
@@ -147,7 +169,7 @@ class ErrorMessage(_MessageType):
         msg = 'code=%04x [%s] message="%s"' \
               % (self.code, self.summary, self.message)
         if self.info is not None:
-            msg += (' ' + self.info)
+            msg += (' info=' + str(self.info))
         return msg
 
     def __str__(self):
@@ -188,7 +210,7 @@ class UnavailableExceptionErrorMessage(RequestExecutionException):
     @staticmethod
     def recv_error_info(f):
         return {
-            'consistencylevel': read_string(f),
+            'consistencylevel': read_consistencylevel(f),
             'required': read_int(f),
             'alive': read_int(f),
         }
@@ -215,9 +237,10 @@ class WriteTimeoutErrorMessage(RequestTimeoutException):
     @staticmethod
     def recv_error_info(f):
         return {
-            'consistencylevel': read_string(f),
+            'consistencylevel': read_consistencylevel(f),
             'received': read_int(f),
             'blockfor': read_int(f),
+            'writetype': read_string(f),
         }
 
 class ReadTimeoutErrorMessage(RequestTimeoutException):
@@ -227,7 +250,7 @@ class ReadTimeoutErrorMessage(RequestTimeoutException):
     @staticmethod
     def recv_error_info(f):
         return {
-            'consistencylevel': read_string(f),
+            'consistencylevel': read_consistencylevel(f),
             'received': read_int(f),
             'blockfor': read_int(f),
             'data_present': bool(read_byte(f)),
@@ -327,20 +350,22 @@ class SupportedMessage(_MessageType):
 class QueryMessage(_MessageType):
     opcode = 0x07
     name = 'QUERY'
-    params = ('query',)
+    params = ('query', 'consistencylevel',)
 
     def send_body(self, f):
         write_longstring(f, self.query)
+        write_consistencylevel(f, self.consistencylevel)
 
 class ResultMessage(_MessageType):
     opcode = 0x08
     name = 'RESULT'
-    params = ('kind', 'results')
+    params = ('kind', 'results',)
 
-    KIND_VOID     = 0x0001
-    KIND_ROWS     = 0x0002
-    KIND_SET_KS   = 0x0003
-    KIND_PREPARED = 0x0004
+    KIND_VOID          = 0x0001
+    KIND_ROWS          = 0x0002
+    KIND_SET_KEYSPACE  = 0x0003
+    KIND_PREPARED      = 0x0004
+    KIND_SCHEMA_CHANGE = 0x0005
 
     type_codes = {
         0x0001: 'ascii',
@@ -373,11 +398,13 @@ class ResultMessage(_MessageType):
             results = None
         elif kind == cls.KIND_ROWS:
             results = cls.recv_results_rows(f)
-        elif kind == cls.KIND_SET_KS:
+        elif kind == cls.KIND_SET_KEYSPACE:
             ksname = read_string(f)
             results = ksname
         elif kind == cls.KIND_PREPARED:
             results = cls.recv_results_prepared(f)
+        elif kind == cls.KIND_SCHEMA_CHANGE:
+            results = cls.recv_results_schema_change(f)
         return cls(kind=kind, results=results)
 
     @classmethod
@@ -415,6 +442,13 @@ class ResultMessage(_MessageType):
         return colspecs
 
     @classmethod
+    def recv_results_schema_change(cls, f):
+        change = read_string(f)
+        ks = read_string(f)
+        cf = read_string(f)
+        return (change, ks, cf)
+
+    @classmethod
     def read_type(cls, f):
         optid = read_short(f)
         try:
@@ -446,13 +480,14 @@ class PrepareMessage(_MessageType):
 class ExecuteMessage(_MessageType):
     opcode = 0x0A
     name = 'EXECUTE'
-    params = ('queryid', 'queryparams')
+    params = ('queryid', 'queryparams', 'consistencylevel',)
 
     def send_body(self, f):
         write_int(f, self.queryid)
         write_short(f, len(self.queryparams))
         for param in self.queryparams:
             write_value(f, param)
+        write_consistencylevel(f, self.consistencylevel)
 
 known_event_types = frozenset((
     'TOPOLOGY_CHANGE',
@@ -512,6 +547,12 @@ def read_short(f):
 
 def write_short(f, s):
     f.write(uint16_pack(s))
+
+def read_consistencylevel(f):
+    return ConsistencyLevel.name_from_value(read_short(f))
+
+def write_consistencylevel(f, cl):
+    write_short(f, ConsistencyLevel.value_from_name(cl))
 
 def read_string(f):
     size = read_short(f)
@@ -621,12 +662,14 @@ class NativeCursor(Cursor):
         kss, cfs, names, ctypes = zip(*colspecs)
         return PreparedQuery(query, queryid, ctypes, paramnames)
 
-    def get_response(self, query):
-        return self._connection.wait_for_request(QueryMessage(query=query))
+    def get_response(self, query, consistency_level):
+        qm = QueryMessage(query=query, consistencylevel=consistency_level)
+        return self._connection.wait_for_request(qm)
 
-    def get_response_prepared(self, prepared_query, params):
+    def get_response_prepared(self, prepared_query, params, consistency_level):
         qparams = [params[pname] for pname in prepared_query.paramnames]
-        em = ExecuteMessage(queryid=prepared_query.itemid, queryparams=qparams)
+        em = ExecuteMessage(queryid=prepared_query.itemid, queryparams=qparams,
+                            consistencylevel=consistency_level)
         return self._connection.wait_for_request(em)
 
     def get_column_metadata(self, column_id):
@@ -665,7 +708,7 @@ class NativeCursor(Cursor):
 
         if response.kind == ResultMessage.KIND_VOID:
             self.description = _VOID_DESCRIPTION
-        elif response.kind == ResultMessage.KIND_SET_KS:
+        elif response.kind == ResultMessage.KIND_SET_KEYSPACE:
             self._connection.keyspace_changed(response.results)
             self.description = _VOID_DESCRIPTION
         elif response.kind == ResultMessage.KIND_ROWS:
@@ -674,6 +717,8 @@ class NativeCursor(Cursor):
             self.result = response.results.rows
             if self.result:
                 self.get_metadata_info(self.result[0])
+        elif response.kind == ResultMessage.KIND_SCHEMA_CHANGE:
+            self.description = _VOID_DESCRIPTION
         else:
             raise Exception('unknown response kind %s: %s' % (response.kind, response))
         self.rowcount = len(self.result)

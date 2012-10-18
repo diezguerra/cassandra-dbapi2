@@ -20,29 +20,35 @@ class Connection(object):
     cql_major_version = 2
 
     def __init__(self, host, port, keyspace, user=None, password=None, cql_version=None,
-                 compression=None, transport=None):
+                 compression=None, consistency_level="ONE", transport=None):
         """
         Params:
-        * host .........: hostname of Cassandra node.
-        * port .........: port number to connect to.
-        * keyspace .....: keyspace to connect to.
-        * user .........: username used in authentication (optional).
-        * password .....: password used in authentication (optional).
-        * cql_version...: CQL version to use (optional).
-        * compression...: whether to use compression. For Thrift connections,
-        *                 this can be None or the name of some supported
-        *                 compression type (like "GZIP"). For native
-        *                 connections, this is treated as a boolean, and if
-        *                 true, the connection will try to find a type of
-        *                 compression supported by both sides.
-        * transport.....: Thrift transport to use (optional);
-        *                 not applicable to NativeConnection.
+        * host ...............: hostname of Cassandra node.
+        * port ...............: port number to connect to.
+        * keyspace ...........: keyspace to connect to.
+        * user ...............: username used in authentication (optional).
+        * password ...........: password used in authentication (optional).
+        * cql_version.........: CQL version to use (optional).
+        * compression.........: whether to use compression. For Thrift connections,
+        *                       this can be None or the name of some supported
+        *                       compression type (like "GZIP"). For native
+        *                       connections, this is treated as a boolean, and if
+        *                       true, the connection will try to find a type of
+        *                       compression supported by both sides.
+        * consistency_level ..: consistency level to use for CQL3 queries (optional);
+        *                       "ONE" is the default CL, other supported values are:
+        *                       "ANY", "TWO", "THREE", "QUORUM", "LOCAL_QUORUM",
+        *                       "EACH_QUORUM" and "ALL";
+        *                       overridable on per-query basis.
+        * transport...........: Thrift transport to use (optional);
+        *                       not applicable to NativeConnection.
         """
         self.host = host
         self.port = port
         self.keyspace = keyspace
         self.cql_version = cql_version
         self.compression = compression
+        self.consistency_level = consistency_level
         self.transport = transport
         self.open_socket = False
 
@@ -89,11 +95,13 @@ class Connection(object):
             raise ProgrammingError("Connection has been closed.")
         curs = self.cursorclass(self)
         curs.compression = self.compression
+        curs.consistency_level = self.consistency_level
         return curs
 
 # TODO: Pull connections out of a pool instead.
 def connect(host, port=None, keyspace=None, user=None, password=None,
-            cql_version=None, native=False, compression=None, transport=None):
+            cql_version=None, native=False, compression=None,
+            consistency_level="ONE", transport=None):
     """
     Create a connection to a Cassandra node.
 
@@ -110,6 +118,10 @@ def connect(host, port=None, keyspace=None, user=None, password=None,
                 type (like "GZIP"). For native connections, this is treated
                 as a boolean, and if true, the connection will try to find
                 a type of compression supported by both sides.
+    @param consistency_level Consistency level to use for CQL3 queries (optional);
+                "ONE" is the default CL, other supported values are:
+                "ANY", "TWO", "THREE", "QUORUM", "LOCAL_QUORUM",
+                "EACH_QUORUM" and "ALL"; overridable on per-query basis.
     @param transport If set, use this Thrift transport instead of creating one;
                 doesn't apply to native connections.
 
@@ -128,4 +140,4 @@ def connect(host, port=None, keyspace=None, user=None, password=None,
             port = 9160
     return connclass(host, port, keyspace, user, password,
                      cql_version=cql_version, compression=compression,
-                     transport=transport)
+                     consistency_level=consistency_level, transport=transport)
