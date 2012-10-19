@@ -1,3 +1,8 @@
+1.4.0 - 2012/10/19
+ * Update for recent CQL3 protocol changes (CASSANDRA-4734)
+ * Open the provided transport if it isn't already
+ * Update thrift definitions (19.34.0 -> 19.35.0)
+
 1.3.0 - 2012/10/03
  * Support passing transport instance to cql.connect()
  * Update thrift definitions (19.28.0 -> 19.34.0)
