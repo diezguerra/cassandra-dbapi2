@@ -519,14 +519,14 @@ class _ParameterizedType(_CassandraType):
     def deserialize(cls, byts):
         if not cls.subtypes:
             raise NotImplementedError("can't deserialize unparameterized %s"
-                                      % self.typename)
+                                      % cls.typename)
         return cls.deserialize_safe(byts)
 
     @classmethod
     def serialize(cls, val):
         if not cls.subtypes:
             raise NotImplementedError("can't serialize unparameterized %s"
-                                      % self.typename)
+                                      % cls.typename)
         return cls.serialize_safe(val)
 
 class _SimpleParameterizedType(_ParameterizedType):
