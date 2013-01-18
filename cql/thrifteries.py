@@ -158,11 +158,12 @@ class ThriftConnection(Connection):
 
         self.remote_thrift_version = tuple(map(int, self.client.describe_version().split('.')))
 
-        if self.cql_version and self.remote_thrift_version < MIN_THRIFT_FOR_CL_IN_PROTOCOL:
+        if self.cql_version:
             self.set_cql_version(self.cql_version)
 
     def set_cql_version(self, cql_version):
-        self.client.set_cql_version(cql_version)
+        if self.remote_thrift_version < MIN_THRIFT_FOR_CL_IN_PROTOCOL:
+            self.client.set_cql_version(cql_version)
         try:
             self.cql_major_version = int(cql_version.split('.')[0])
         except ValueError:
