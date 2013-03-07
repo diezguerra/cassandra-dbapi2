@@ -368,13 +368,13 @@ class TestCql(unittest.TestCase):
         """)
         self.assertEqual(cursor.rowcount, 2)
 
-        r = cursor.fetchone()
-        self.assertEqual(r[0], "asmith")
-        self.assertEqual(len(r), 2, msg='r is %r, but expected length 2' % (r,))
+        rows = sorted(cursor.fetchall())
 
-        r = cursor.fetchone()
-        self.assertEqual(r[0], "dozer")
-        self.assertEqual(len(r), 2, msg='r is %r, but expected length 2' % (r,))
+        self.assertEqual(rows[0][0], "asmith")
+        self.assertEqual(len(rows[0]), 2, msg='r is %r, but expected length 2' % (rows[0],))
+
+        self.assertEqual(rows[1][0], "dozer")
+        self.assertEqual(len(rows[1]), 2, msg='r is %r, but expected length 2' % (rows[1],))
 
     def test_index_scan_greater_than(self):
         "indexed scan where a column is greater than a value"
