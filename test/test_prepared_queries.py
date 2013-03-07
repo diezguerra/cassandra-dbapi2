@@ -73,8 +73,8 @@ class TestPreparedQueries(unittest.TestCase):
                                                         thefloat float,
                                                         thedecimal decimal,
                                                         theblob blob)""")
-        self.cursor.execute("insert into abc (thekey, thedecimal) values ('1999-12-31+0000', '-14.400')")
-        self.cursor.execute("insert into abc (thekey, theblob) values ('1969-08-15+0000', '00ff8008')")
+        self.cursor.execute("insert into abc (thekey, thedecimal) values ('1999-12-31+0000', -14.400)")
+        self.cursor.execute("insert into abc (thekey, theblob) values ('1969-08-15+0000', 0x00ff8008)")
         self.cursor.execute("insert into abc (thekey, theint) values ('2012-12-21+0000', 666)")
         self.cursor.execute("insert into abc (thekey, thefloat) values ('2002-09-20+0000', 0.15)")
         self.cursor.execute("""create columnfamily counterito (id int,
