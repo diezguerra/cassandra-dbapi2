@@ -417,18 +417,20 @@ class InetAddressType(_CassandraType):
     @staticmethod
     def deserialize(byts):
         if len(byts) == 16:
-            fam = socket.AF_INET6
+            return socket.inet_ntop(socket.AF_INET6, byts)
         else:
-            fam = socket.AF_INET
-        return socket.inet_ntop(fam, byts)
+            # not using inet_ntop for both ipv4 and ipv6 so that
+            # at least ipv4 addrs will work on Windows.
+            return socket.inet_ntoa(byts)
 
     @staticmethod
     def serialize(addr):
         if ':' in addr:
-            fam = socket.AF_INET6
+            return socket.inet_pton(socket.AF_INET6, addr)
         else:
-            fam = socket.AF_INET
-        return socket.inet_pton(fam, addr)
+            # not using inet_pton for both ipv4 and ipv6 so that
+            # at least ipv4 addrs will work on Windows.
+            return socket.inet_aton(addr)
 
 class CounterColumnType(_CassandraType):
     typename = 'counter'
