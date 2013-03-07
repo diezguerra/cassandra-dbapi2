@@ -24,6 +24,7 @@ from cql.apivalues import ProgrammingError, OperationalError
 from cql.query import PreparedQuery, prepare_query, cql_quote_name
 import socket
 import itertools
+import uuid
 try:
     from cStringIO import StringIO
 except ImportError:
@@ -416,7 +417,8 @@ class ResultMessage(_MessageType):
 
     @classmethod
     def recv_results_prepared(cls, f):
-        queryid = read_int(f)
+        size = read_short(f)
+        queryid = uuid.UUID(bytes=f.read(size))
         colspecs = cls.recv_results_metadata(f)
         return (queryid, colspecs)
 
@@ -483,7 +485,8 @@ class ExecuteMessage(_MessageType):
     params = ('queryid', 'queryparams', 'consistencylevel',)
 
     def send_body(self, f):
-        write_int(f, self.queryid)
+        write_short(f, 16)
+        f.write(self.queryid.bytes)
         write_short(f, len(self.queryparams))
         for param in self.queryparams:
             write_value(f, param)
