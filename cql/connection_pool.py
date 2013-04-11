@@ -15,12 +15,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 from Queue import Queue, Empty
 from threading import Thread
 from time import sleep
-from cql.connection import Connection
+
+from cql import connect
+
 
 __all__ = ['ConnectionPool']
+
 
 class ConnectionPool(object):
     """
@@ -30,47 +34,55 @@ class ConnectionPool(object):
     lazily creating new connections if needed as `borrow_connection' is
     called.  Connections are re-added to the pool by `return_connection',
     unless doing so would exceed the maximum pool size.
-    
+
     Example usage:
     >>> pool = ConnectionPool("localhost", 9160, "Keyspace1")
     >>> conn = pool.borrow_connection()
     >>> conn.execute(...)
     >>> pool.return_connection(conn)
     """
-    def __init__(self, hostname, port=9160, keyspace=None, username=None,
-                 password=None, decoder=None, max_conns=25, max_idle=5,
-                 eviction_delay=10000):
+    def __init__(self, hostname='127.0.0.1', port=9160, keyspace=None,
+                 user=None, password=None, cql_version='3', compression=None,
+                 consistency_level=None, transport=None, max_conns=25,
+                 max_idle=5, eviction_delay=10000):
         self.hostname = hostname
         self.port = port
         self.keyspace = keyspace
-        self.username = username
+        self.user = user
         self.password = password
-        self.decoder = decoder
+        self.cql_version = cql_version
+        self.compression = compression
+        self.consistency_level = consistency_level
+        self.transport = transport
         self.max_conns = max_conns
         self.max_idle = max_idle
         self.eviction_delay = eviction_delay
-        
+
         self.connections = Queue()
         self.connections.put(self.__create_connection())
         self.eviction = Eviction(self.connections,
                                  self.max_idle,
                                  self.eviction_delay)
-    
+
     def __create_connection(self):
-        return Connection(self.hostname,
-                          port=self.port,
-                          keyspace=self.keyspace,
-                          username=self.username,
-                          password=self.password,
-                          decoder=self.decoder)
-        
+        return connect(
+            self.hostname,
+            port=self.port,
+            keyspace=self.keyspace,
+            user=self.user,
+            password=self.password,
+            cql_version=self.cql_version,
+            compression=self.compression,
+            consistency_level=self.consistency_level,
+            transport=self.transport)
+
     def borrow_connection(self):
         try:
             connection = self.connections.get(block=False)
         except Empty:
             connection = self.__create_connection()
         return connection
-    
+
     def return_connection(self, connection):
         if self.connections.qsize() > self.max_conns:
             connection.close()
@@ -79,18 +91,19 @@ class ConnectionPool(object):
             return
         self.connections.put(connection)
 
+
 class Eviction(Thread):
     def __init__(self, connections, max_idle, eviction_delay):
         Thread.__init__(self)
-        
+
         self.connections = connections
         self.max_idle = max_idle
         self.eviction_delay = eviction_delay
-        
+
         self.setDaemon(True)
         self.setName("EVICTION-THREAD")
         self.start()
-        
+
     def run(self):
         while(True):
             while(self.connections.qsize() > self.max_idle):
@@ -98,7 +111,4 @@ class Eviction(Thread):
                 if connection:
                     if connection.is_open():
                         connection.close()
-            sleep(self.eviction_delay/1000)
-        
-        
-        
+            sleep(self.eviction_delay / 1000)
