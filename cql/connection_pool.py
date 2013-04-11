@@ -43,7 +43,7 @@ class ConnectionPool(object):
     """
     def __init__(self, hostname='127.0.0.1', port=9160, keyspace=None,
                  user=None, password=None, cql_version='3', compression=None,
-                 consistency_level=None, transport=None, max_conns=25,
+                 consistency_level='ONE', transport=None, max_conns=25,
                  max_idle=5, eviction_delay=10000):
         self.hostname = hostname
         self.port = port
