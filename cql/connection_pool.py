@@ -24,7 +24,6 @@ from time import sleep
 import cql
 
 
-__all__ = ['ConnectionPool']
 __all__ = ['ConnectionPool', 'ConnectionPoolSingleton']
 
 
@@ -43,10 +42,6 @@ class ConnectionPool(object):
     >>> conn.execute(...)
     >>> pool.return_connection(conn)
     """
-    def __init__(self, hostname='127.0.0.1', port=9160, keyspace=None,
-                 user=None, password=None, cql_version='3', compression=None,
-                 consistency_level='ONE', transport=None, max_conns=25,
-                 max_idle=5, eviction_delay=10000):
     def __init__(self, hostname=['127.0.0.1'], port=9160, keyspace=None,
                  user=None, password=None, cql_version='3.0.0',
                  compression=None, consistency_level='ONE', transport=None,
@@ -93,7 +88,7 @@ class ConnectionPool(object):
         if self.connections.qsize() > self.max_conns:
             connection.close()
             return
-        if not connection.is_open():
+        if not connection.open_socket:
             return
         self.connections.put(connection)
 
@@ -141,10 +136,10 @@ class Eviction(Thread):
         self.start()
 
     def run(self):
-        while(True):
+        while True:
             while(self.connections.qsize() > self.max_idle):
                 connection = self.connections.get(block=False)
-                if connection:
-                    if connection.is_open():
+                if connection and connection.open_socket:
                         connection.close()
             sleep(self.eviction_delay / 1000)
+
