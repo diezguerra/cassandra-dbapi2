@@ -1,4 +1,3 @@
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -24,6 +23,7 @@ from cql import connect
 
 
 __all__ = ['ConnectionPool']
+__all__ = ['ConnectionPool', 'ConnectionPoolSingleton']
 
 
 class ConnectionPool(object):
@@ -90,6 +90,15 @@ class ConnectionPool(object):
         if not connection.is_open():
             return
         self.connections.put(connection)
+
+class ConnectionPoolSingleton(ConnectionPool):
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(ConnectionPoolSingleton, cls).__new__(
+                cls, *args, **kwargs)
+        return cls._instance
 
 
 class Eviction(Thread):
