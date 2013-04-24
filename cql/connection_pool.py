@@ -17,10 +17,11 @@
 
 from contextlib import contextmanager
 from Queue import Queue, Empty
+from random import choice
 from threading import Thread
 from time import sleep
 
-from cql import connect
+import cql
 
 
 __all__ = ['ConnectionPool']
@@ -46,6 +47,10 @@ class ConnectionPool(object):
                  user=None, password=None, cql_version='3', compression=None,
                  consistency_level='ONE', transport=None, max_conns=25,
                  max_idle=5, eviction_delay=10000):
+    def __init__(self, hostname=['127.0.0.1'], port=9160, keyspace=None,
+                 user=None, password=None, cql_version='3.0.0',
+                 compression=None, consistency_level='ONE', transport=None,
+                 max_conns=25, max_idle=5, eviction_delay=10000):
         self.hostname = hostname
         self.port = port
         self.keyspace = keyspace
@@ -66,8 +71,8 @@ class ConnectionPool(object):
                                  self.eviction_delay)
 
     def __create_connection(self):
-        return connect(
-            self.hostname,
+        return cql.connect(
+            choice(self.hostname),
             port=self.port,
             keyspace=self.keyspace,
             user=self.user,
