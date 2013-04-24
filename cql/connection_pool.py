@@ -15,6 +15,7 @@
 # limitations under the License.
 
 
+from contextlib import contextmanager
 from Queue import Queue, Empty
 from threading import Thread
 from time import sleep
@@ -90,6 +91,27 @@ class ConnectionPool(object):
         if not connection.is_open():
             return
         self.connections.put(connection)
+
+    @property
+    @contextmanager
+    def connection(self):
+        """This method creates a instance property that is in turn a context
+        generator that borrows and finally returns a connection back to the
+        pool.
+
+        Usage:
+
+        >>> with pool.connection as conn:
+        >>>     print conn.cursor.execute('USE aps;')
+        >>>
+        True
+
+        """
+
+        conn = self.borrow_connection()
+        yield conn
+        self.return_connection(conn)
+
 
 class ConnectionPoolSingleton(ConnectionPool):
     _instance = None
