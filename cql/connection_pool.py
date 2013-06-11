@@ -15,9 +15,11 @@
 # limitations under the License.
 
 
-from contextlib import contextmanager
 from Queue import Queue, Empty
+from contextlib import contextmanager
+from multiprocessing import Lock
 from random import choice
+from sys import platform
 from threading import Thread
 from time import sleep
 
@@ -37,16 +39,20 @@ class ConnectionPool(object):
     unless doing so would exceed the maximum pool size.
 
     Example usage:
-    >>> pool = ConnectionPool("localhost", 9160, "Keyspace1")
-    >>> conn = pool.borrow_connection()
-    >>> conn.execute(...)
-    >>> pool.return_connection(conn)
+    [1]: pool = ConnectionPool("localhost", 9160, "Keyspace1")
+    [2]: conn = pool.borrow_connection()
+    [3]: conn.execute(...)
+    [4]: pool.return_connection(conn)
     """
-    def __init__(self, hostname=['127.0.0.1'], port=9160, keyspace=None,
+
+    lock = Lock()
+
+    def __init__(self, hostname='127.0.0.1', port=9160, keyspace=None,
                  user=None, password=None, cql_version='3.0.0',
                  compression=None, consistency_level='ONE', transport=None,
                  max_conns=25, max_idle=5, eviction_delay=10000):
-        self.hostname = hostname
+        self.hostname = hostname \
+            if isinstance(hostname, (tuple, list)) else [hostname]
         self.port = port
         self.keyspace = keyspace
         self.user = user
@@ -59,8 +65,7 @@ class ConnectionPool(object):
         self.max_idle = max_idle
         self.eviction_delay = eviction_delay
 
-        self.connections = Queue()
-        self.connections.put(self.__create_connection())
+        self.connections = Queue(maxsize=0)  # Infinite, for now
         self.eviction = Eviction(self.connections,
                                  self.max_idle,
                                  self.eviction_delay)
@@ -79,18 +84,25 @@ class ConnectionPool(object):
 
     def borrow_connection(self):
         try:
-            connection = self.connections.get(block=False)
+            with self.lock:
+                connection = self.connections.get(block=False)
         except Empty:
             connection = self.__create_connection()
         return connection
 
     def return_connection(self, connection):
-        if self.connections.qsize() > self.max_conns:
+        with self.lock:
+            self.connections.put(connection)
+        return
+        # No .qsize() in OSX, so we always close
+        if platform == 'darwin' or \
+                self.connections.qsize() > self.max_conns:
             connection.close()
             return
         if not connection.open_socket:
             return
-        self.connections.put(connection)
+        with self.lock:
+            self.connections.put(connection)
 
     @property
     @contextmanager
@@ -101,9 +113,9 @@ class ConnectionPool(object):
 
         Usage:
 
-        >>> with pool.connection as conn:
-        >>>     print conn.cursor.execute('USE aps;')
-        >>>
+        [1]: with pool.connection as conn:
+        [2]:    print conn.cursor.execute('USE aps;')
+
         True
 
         """
@@ -133,13 +145,17 @@ class Eviction(Thread):
 
         self.setDaemon(True)
         self.setName("EVICTION-THREAD")
-        self.start()
+
+        # No .qsize() in OSX, so no point checking `max_idle`
+        if platform != 'darwin':
+            self.start()
 
     def run(self):
         while True:
             while(self.connections.qsize() > self.max_idle):
-                connection = self.connections.get(block=False)
-                if connection and connection.open_socket:
+                with self.lock:
+                    connection = self.connections.get(block=False)
+                if connection:
+                    if connection.open_socket:
                         connection.close()
             sleep(self.eviction_delay / 1000)
-
